@@ -1,6 +1,6 @@
-fastmcp
 markitdown
 fastapi
 uvicorn
 pydantic
 requests
+fastmcp
