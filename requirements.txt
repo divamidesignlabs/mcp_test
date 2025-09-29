@@ -3,4 +3,4 @@ fastapi
 uvicorn
 pydantic
 requests
-fastmcp
+-e .

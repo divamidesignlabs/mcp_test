@@ -2,7 +2,7 @@
 from fastmcp import FastMCP
 from markitdown import MarkItDown
 
-mcp = FastMCP("File Converter MCP Server")
+mcp = FastMCP("File Converter MCP Server", host="127.0.0.1", port=8001)
 
 @mcp.tool
 def convert(file_path: str) -> str:
