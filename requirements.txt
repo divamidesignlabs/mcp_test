@@ -7,3 +7,5 @@ requests
 boto3
 python-dotenv
 click
+ddgs
+pydantic-ai
