@@ -1,109 +1,60 @@
-# MCP Test - File Converter with S3 Integration
+# Market Research MCP (Deployed)
 
-A Model Context Protocol (MCP) server implementation that provides file conversion capabilities with AWS S3 integration.
+This repository now exposes only the Market & Web Intelligence capability via a deployed Model Context Protocol (MCP) server. All file conversion / S3 archival features have been removed from the active deployment and are no longer documented here.
 
-## Features
+## Purpose
+Provide fast, structured market and competitive intelligence by combining targeted open‑web retrieval (DuckDuckGo via DDGS) with LLM‑based synthesis validated through Pydantic schemas.
 
-- **File to Markdown Conversion**: Convert various file formats to Markdown using MarkItDown
-- **S3 Integration**: Upload original files and converted markdown to AWS S3
-- **Batch Processing**: Handle single files or entire directories
-- **FastMCP Server**: RESTful API endpoints for file conversion operations
+## Available MCP Tools
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `quick_search` | Lightweight DuckDuckGo query returning raw snippets | `{ query, results:[{title, href, body}], count }` |
+| `market_research` | Full workflow: search → context assembly → LLM analysis (summary, trends, competitors, opportunities, confidence, citations) | JSON matching `MarketResearchResult` schema |
 
-## Installation
+## Output Schema (`market_research`)
+| Field | Type | Notes |
+|-------|------|-------|
+| `query` | string | Original user query |
+| `summary` | string | 2–4 sentence synthesized overview |
+| `top_trends` | list[str] | 3–5 specific, evidence‑grounded trends |
+| `competitors` | list[str] | 3–5 principal players (companies/products) |
+| `opportunities` | list[str] | 3 actionable opportunity statements |
+| `confidence` | float (0–1) | Calibrated subjective confidence |
+| `citations` | list[SearchHit] | Each: `title, href, body` snippet |
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd mcp_test
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Set up environment variables by creating a `.env` file:
-```bash
-AWS_ACCESS_KEY_ID=your_access_key_id
-AWS_SECRET_ACCESS_KEY=your_secret_access_key
-AWS_REGION=us-east-1
-S3_BUCKET=your_bucket_name
-S3_PREFIX=optional_prefix
-```
-
-## Usage
-
-### Running the MCP Server
-
-```bash
-python fastMcp/md_converter_s3.py
-```
-
-The server will start on `http://127.0.0.1:8001`
-
-### Available Tools
-
-#### 1. convert
-Converts a single file to markdown format locally.
-
-```python
-# Example usage
-convert("path/to/your/file.pdf")
-```
-
-#### 2. upload_and_convert
-Uploads files to S3, converts them to markdown, and uploads the markdown back to S3.
-
-```python
-# Convert single file
-upload_and_convert("path/to/file.pdf", "custom_output_name")
-
-# Convert entire directory
-upload_and_convert("path/to/directory")
-```
-
-## Project Structure
-
-```
-mcp_test/
-├── fastMcp/
-│   └── md_converter_s3.py    # Main MCP server implementation
-├── requirements.txt          # Python dependencies
-├── .gitignore               # Git ignore patterns
-├── .env                     # Environment variables (not tracked)
-└── README.md               # This file
-```
-
-## Dependencies
-
-- `fastmcp` - FastMCP framework for building MCP servers
-- `markitdown` - File to markdown conversion library
-- `boto3` - AWS SDK for Python
-- `python-dotenv` - Load environment variables from .env files
-- `fastapi` - Web framework for building APIs
-- `uvicorn` - ASGI server implementation
-- `pydantic` - Data validation and settings management
-- `requests` - HTTP library
-- `click` - Command line interface creation toolkit
+## Model Selection Logic
+1. If `GEMINI_API_KEY` present → use `GEMINI_MODEL` (e.g. `gemini-1.5-pro`).
+2. Else if `OPENAI_API_KEY` present → use `OPENAI_MODEL` (e.g. `gpt-4.1-mini`).
+3. Else → raise configuration error (returned in response envelope for tool calls made without startup validation).
 
 ## Environment Variables
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GEMINI_API_KEY` | One of Gemini/OpenAI | Preferred model API key |
+| `GEMINI_MODEL` | If Gemini used | Model name (defaults internally if omitted) |
+| `OPENAI_API_KEY` | One of Gemini/OpenAI | Fallback model API key |
+| `OPENAI_MODEL` | If OpenAI used | Model name (defaults internally if omitted) |
 
-| Variable | Description | Required | Default |
-|----------|-------------|----------|---------|
-| `AWS_ACCESS_KEY_ID` | AWS access key ID | Yes | - |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret access key | Yes | - |
-| `AWS_REGION` | AWS region | No | us-east-1 |
-| `S3_BUCKET` | S3 bucket name | Yes | - |
-| `S3_PREFIX` | Optional prefix for S3 keys | No | - |
+## Error Handling
+| Situation | Behavior |
+|-----------|----------|
+| No results from search | Returns `{ error, query, suggestions }` |
+| Missing all API keys | Raises/returns configuration error message |
+| LLM schema deviation | Falls back to raw text in `summary`, empty structured lists, includes original citations, adds `note` |
+| Async loop conflict | Returns error envelope with `type=RuntimeError` |
 
-## Development
+## Design Notes
+- Retrieval and synthesis cleanly separated for inspectability.
+- Defensive parsing ensures partial value even on model drift.
+- Citations preserve source transparency for downstream verification.
+- Minimal external dependencies beyond DDGS + chosen model provider.
 
-This project is part of the DAKSH workflow system and serves as a testing ground for MCP server implementations with file processing capabilities.
+## Roadmap (Focused)
+- Add rate limiting and retry with jitter around search
+- Confidence calibration heuristics (e.g., penalize low citation diversity)
+- Optional per‑citation relevance scoring
+- Increase robustness for multilingual queries
+- Streaming incremental analysis (chunked JSON patches)
 
-## License
-
-[Add your license information here]
-
-## Contributing
-
-[Add contributing guidelines here]
+---
+Internal deployment/run details intentionally omitted (service already live).

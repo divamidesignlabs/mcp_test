@@ -4,7 +4,7 @@
             "url": "http://0.0.0.0:8000/mcp/"
         },
     "market-research": {
-      "url": "http://127.0.0.1:8008/mcp",
+      "url": "https://api.mcptest.divami.com/mcp",
       "type": "http"
   }
     }
