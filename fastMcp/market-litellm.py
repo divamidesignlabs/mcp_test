@@ -1,28 +1,63 @@
+"""Market Research MCP Server using FastMCP, DDGS, and LiteLLM.
+
+Refactored to remove undefined model abstractions and rely directly on LiteLLM's
+`completion` interface pointed at a configurable proxy/base URL.
 """
-Market Research MCP Server using FastMCP, DDGS, and Pydantic AI
-"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional
 from fastmcp import FastMCP
 from ddgs import DDGS
-from pydantic_ai import Agent
-from pydantic_ai.models.gemini import GeminiModel
-from pydantic_ai.models.openai import OpenAIModel
 import os
 import textwrap
+import json
+import re
+import asyncio
 from dotenv import load_dotenv
-
-# Load environment variables
+from litellm import completion
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+# -------------------------
+# Environment / Configuration
+# -------------------------
 load_dotenv()
-gemini_key = os.getenv("GEMINI_API_KEY")
-openai_key = os.getenv("OPENAI_API_KEY")
 
-gemini_model = os.getenv("GEMINI_MODEL")
-openai_model = os.getenv("OPENAI_MODEL")
+LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  
+LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "https://litellm.divami.com")
+MODEL_NAME = os.getenv("MODEL_NAME", "gemini/gemini-1.5-flash") 
 
-print(f"Gemini API Key configured: {bool(gemini_key)}")
-print(f"OpenAI API Key configured: {bool(openai_key)}")
 
+class ModelConfig(BaseModel):
+    """Configuration for AI model providers."""
+
+    model_name: str
+    base_url: str
+    api_key: Optional[str] = None  # Optional for local proxies
+
+    @validator("base_url")
+    def base_url_must_not_be_empty(cls, v):
+        if not v:
+            raise ValueError("base_url must not be empty")
+        return v
+
+def _create_model(config) -> OpenAIChatModel:
+    """Create an OpenAIChatModel from configuration."""
+    provider_kwargs = {"base_url": config.base_url}
+    if config.api_key:
+        provider_kwargs["api_key"] = config.api_key
+    provider = OpenAIProvider(**provider_kwargs)
+    return OpenAIChatModel(model_name=config.model_name, provider=provider)
+
+baseurl=os.getenv("LITELLM_BASE_URL", "https://litellm.divami.com")
+litellm_key=os.getenv("LITELLM_MASTER_KEY")
+
+gemini_config = ModelConfig(
+    model_name="openai/gpt-4o-mini",
+    base_url=baseurl,
+    api_key=litellm_key,
+)
+
+gemini_model = _create_model(gemini_config)
 
 # -------------------------
 # Pydantic Models
@@ -50,20 +85,9 @@ class MarketResearchResult(BaseModel):
 # -------------------------
 mcp = FastMCP("MarketResearchAgent")
 
-
 # -------------------------
 # Helper Functions
 # -------------------------
-def get_configured_model():
-    """Return the first available AI model based on API keys"""
-    if gemini_key:
-        return GeminiModel(gemini_model)
-    elif openai_key:
-        return OpenAIModel(openai_model)
-    else:
-        raise ValueError(
-            "No API key found. Set GEMINI_API_KEY or OPENAI_API_KEY in your .env file"
-        )
 
 
 def format_search_results(raw_hits: list) -> List[dict]:
@@ -122,18 +146,30 @@ async def market_research(query: str, max_results: int = 5) -> dict:
         context = build_context_string(hits)
         
         # 3. Get configured AI model
-        model = get_configured_model()
+        # model = get_configured_model()
         
-        # 4. Create Pydantic AI Agent
+        # 4. Create Pydantic AI Agent with proper syntax
+        # agent = Agent(
+        #     model=model,
+        #     system_prompt=(
+        #         "You are an expert market research analyst. "
+        #         "Analyze search results and provide structured insights. "
+        #         "Be factual, specific, and conservative with confidence estimates. "
+        #         "Focus on actionable intelligence."
+        #     )
+        # )
+
         agent = Agent(
-            model=model,
+            model=gemini_model,
             system_prompt=(
-                "You are an expert market research analyst. "
+                 "You are an expert market research analyst. "
                 "Analyze search results and provide structured insights. "
                 "Be factual, specific, and conservative with confidence estimates. "
                 "Focus on actionable intelligence."
-            )
+            ),
+            name="daksh-bot",
         )
+
         
         # 5. Build analysis prompt
         prompt = textwrap.dedent(f"""
@@ -165,19 +201,8 @@ async def market_research(query: str, max_results: int = 5) -> dict:
             }}
         """)
         
-        # 6. Run agent (async) and get structured output
-        try:
-            result = await agent.run(prompt, message_history=[])
-        except RuntimeError as runtime_err:
-            # Fallback: if library internally mis-detects loop state
-            if "event loop" in str(runtime_err).lower():
-                return {
-                    "error": "Async event loop conflict while running model",
-                    "query": query,
-                    "type": "RuntimeError",
-                    "details": str(runtime_err)
-                }
-            raise
+        # 6. Run agent and get structured output
+        result = await agent.run(prompt, message_history=[])
         
         # 7. Parse and validate response
         # Try to parse as MarketResearchResult
@@ -251,12 +276,8 @@ def quick_search(query: str, max_results: int = 3) -> dict:
 # Entry Point
 # -------------------------
 if __name__ == "__main__":
-    # Verify API keys before starting
-    if not gemini_key and not openai_key:
-        print("\n⚠️  WARNING: No API keys configured!")
-        print("Set GEMINI_API_KEY or OPENAI_API_KEY in your .env file\n")
     
     # Run FastMCP server
-    print("\n🚀 Starting Market Research MCP Server on port 8008...")
+    print("\n🚀 Starting Market Research MCP Server on port 8001...")
     print("Available tools: market_research, quick_search\n")
-    mcp.run(transport="streamable-http", port=8008)
+    mcp.run(transport="streamable-http", port=8001)

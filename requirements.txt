@@ -9,3 +9,9 @@ python-dotenv
 click
 ddgs
 pydantic-ai
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+authlib
+litellm
+
