@@ -638,17 +638,17 @@ if __name__ == "__main__":
         Route('/login', temp_auth_login, methods=['POST']),
     ])
     
-    print("="*60)
-    if SKIP_STARTUP_AUTH:
-        print("⚠️  Skipping authentication (SKIP_STARTUP_AUTH=true)")
-    else:
-        print(f"🔐 Starting Authentication Server on port {AUTH_PORT}...")
-    print("="*60 + "\n")
+    # print("="*60)
+    # if SKIP_STARTUP_AUTH:
+    #     print("⚠️  Skipping authentication (SKIP_STARTUP_AUTH=true)")
+    # else:
+    #     print(f"🔐 Starting Authentication Server on port {AUTH_PORT}...")
+    # print("="*60 + "\n")
     
     # Run auth server in background thread
     auth_server_ref = {"server": None}
     def run_auth_server():
-        config = uvicorn.Config(temp_app, host="0.0.0.0", port=AUTH_PORT, log_level="error")
+        config = uvicorn.Config(temp_app, host="0.0.0.0", port=MCP_PORT, log_level="error")
         server = uvicorn.Server(config)
         auth_server_ref["server"] = server
         server.run()
@@ -665,10 +665,7 @@ if __name__ == "__main__":
             # Ensure trailing slash for consistency
             base = PUBLIC_AUTH_BASE_URL.rstrip('/')
             login_url = f"{base}/login"
-        else:
-            login_url = f"http://localhost:{AUTH_PORT}/login"
-            print("⚠️  PUBLIC_AUTH_BASE_URL not set; using localhost fallback. Set PUBLIC_AUTH_BASE_URL for deployed environment.")
-
+       
         print(f"🌐 Authentication page: {login_url}")
         print("   (If browser doesn't open, manually visit the URL above)\n")
         try:
