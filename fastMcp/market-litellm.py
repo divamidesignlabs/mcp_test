@@ -42,6 +42,7 @@ AUTH_USERNAME = os.getenv("MCP_AUTH_USERNAME","testmcp")
 AUTH_PASSWORD = os.getenv("MCP_AUTH_PASSWORD","test123")
 MCP_PORT = int(os.getenv("MCP_PORT", "8001"))
 AUTH_PORT = int(os.getenv("AUTH_PORT", str(MCP_PORT + 1)))
+PUBLIC_AUTH_BASE_URL = os.getenv("PUBLIC_AUTH_BASE_URL")  # e.g. https://mydomain.com
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")  # development or production
 SKIP_STARTUP_AUTH = os.getenv("SKIP_STARTUP_AUTH", "false").lower() == "true"
 SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
@@ -630,8 +631,10 @@ if __name__ == "__main__":
             }, status_code=400)
     
     # Create temporary auth app
+    # Expose both '/' and '/login' for GET (UI) and '/login' for POST (submission)
     temp_app = Starlette(routes=[
         Route('/', temp_auth_page),
+        Route('/login', temp_auth_page, methods=['GET']),
         Route('/login', temp_auth_login, methods=['POST']),
     ])
     
@@ -654,14 +657,24 @@ if __name__ == "__main__":
         auth_thread = threading.Thread(target=run_auth_server, daemon=True)
         auth_thread.start()
         time.sleep(2)  # Let auth server start
-        if ENVIRONMENT == "development":
-            auth_url = f"http://localhost:{AUTH_PORT}"
-            print(f"🌐 Opening browser to: {auth_url}")
-            print("   (If browser doesn't open, manually visit the URL above)\n")
-            webbrowser.open(auth_url)
+
+        # Determine which URL to present/open
+       
+            # Use provided public base if available, else fallback to localhost (warning)
+        if PUBLIC_AUTH_BASE_URL:
+            # Ensure trailing slash for consistency
+            base = PUBLIC_AUTH_BASE_URL.rstrip('/')
+            login_url = f"{base}/login"
         else:
-            print("⚠️  PRODUCTION MODE")
-            print("   Visit the auth URL to authenticate and start MCP\n")
+            login_url = f"http://localhost:{AUTH_PORT}/login"
+            print("⚠️  PUBLIC_AUTH_BASE_URL not set; using localhost fallback. Set PUBLIC_AUTH_BASE_URL for deployed environment.")
+
+        print(f"🌐 Authentication page: {login_url}")
+        print("   (If browser doesn't open, manually visit the URL above)\n")
+        try:
+            webbrowser.open(login_url)
+        except Exception as e:
+            print(f"⚠️  Could not open browser automatically: {e}")
         print("⏳ Waiting for authentication...")
         max_wait = int(os.getenv("AUTH_MAX_WAIT", "300"))
         for i in range(max_wait):
