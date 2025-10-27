@@ -1,34 +1,54 @@
 """Market Research MCP Server using FastMCP, DDGS, and LiteLLM.
 
-Simple Google OAuth on startup - authenticates user on server start.
+Production hardening updates:
+ - Separate auth port to avoid conflict
+ - Optional auth skip via SKIP_STARTUP_AUTH
+ - Session token secret (itsdangerous ready)
+ - Reuse model providers (performance)
+ - Robust JSON extraction fallback
+ - Tool-level auth gating
+ - Logging + removal of unused imports
 """
-from pydantic import BaseModel, Field, validator
+import os
+import time
+import json
+import textwrap
+import logging
+import secrets
 from typing import List, Optional
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field, validator
 from fastmcp import FastMCP
 from ddgs import DDGS
-import os
-import textwrap
-import json
-import re
-import asyncio
-from dotenv import load_dotenv
-from litellm import completion
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 import webbrowser
-from urllib.parse import parse_qs
-import time
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+# -------------------------
+# Logging Setup
+# -------------------------
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="[%(levelname)s] %(message)s")
+log = logging.getLogger("market-mcp")
 # -------------------------
 # Environment / Configuration
 # -------------------------
 load_dotenv()
 
 # Simple Authentication Configuration
-AUTH_USERNAME = os.getenv("MCP_AUTH_USERNAME", "testmcp")
-AUTH_PASSWORD = os.getenv("MCP_AUTH_PASSWORD", "test123")
+AUTH_USERNAME = os.getenv("MCP_AUTH_USERNAME","testmcp")
+AUTH_PASSWORD = os.getenv("MCP_AUTH_PASSWORD","test123")
 MCP_PORT = int(os.getenv("MCP_PORT", "8001"))
+AUTH_PORT = int(os.getenv("AUTH_PORT", str(MCP_PORT + 1)))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")  # development or production
+SKIP_STARTUP_AUTH = os.getenv("SKIP_STARTUP_AUTH", "false").lower() == "true"
+SESSION_SECRET = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
+
+if not AUTH_USERNAME or not AUTH_PASSWORD:
+    log.warning("Authentication credentials not set (MCP_AUTH_USERNAME/MCP_AUTH_PASSWORD). Set these for production use.")
+serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="mcp-auth")
 
 # LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  
 # LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL")
@@ -79,7 +99,7 @@ if custom_models:
         )
         for model_name in model_names
     ]
-    print(f"📝 Using custom model fallback list: {model_names}")
+    log.info(f"Using custom model fallback list: {model_names}")
 else:
     # Default fallback chain
     MODEL_CONFIGS = [
@@ -109,13 +129,13 @@ def get_model_with_fallback() -> OpenAIChatModel:
     
     for i, config in enumerate(MODEL_CONFIGS):
         try:
-            print(f"Attempting to use model: {config.model_name}")
+            log.info(f"Attempting to use model: {config.model_name}")
             model = _create_model(config)
-            print(f"✓ Successfully initialized model: {config.model_name}")
+            log.info(f"Successfully initialized model: {config.model_name}")
             return model
         except Exception as e:
             last_error = e
-            print(f"✗ Failed to initialize {config.model_name}: {str(e)}")
+            log.error(f"Failed to initialize {config.model_name}: {str(e)}")
             continue
     
     # If all models fail, raise the last error
@@ -127,8 +147,16 @@ def get_model_with_fallback() -> OpenAIChatModel:
 try:
     primary_model = get_model_with_fallback()
 except Exception as e:
-    print(f"CRITICAL: Could not initialize any model: {e}")
+    log.critical(f"Could not initialize any model: {e}")
     primary_model = None
+
+# Pre-initialize providers list for reuse
+MODEL_PROVIDERS: List[OpenAIChatModel] = []
+for cfg in MODEL_CONFIGS:
+    try:
+        MODEL_PROVIDERS.append(_create_model(cfg))
+    except Exception as e:
+        log.warning(f"Skipping provider init for {cfg.model_name}: {e}")
 
 # -------------------------
 # Pydantic Models
@@ -203,26 +231,25 @@ async def run_agent_with_fallback(prompt: str, system_prompt: str) -> any:
     """
     last_error = None
     
-    for i, config in enumerate(MODEL_CONFIGS):
+    providers_chain = MODEL_PROVIDERS if MODEL_PROVIDERS else [
+        _create_model(cfg) for cfg in MODEL_CONFIGS
+    ]
+    for i, model in enumerate(providers_chain):
         try:
-            print(f"Trying model {i+1}/{len(MODEL_CONFIGS)}: {config.model_name}")
-            model = _create_model(config)
-            
+            log.info(f"Trying model {i+1}/{len(providers_chain)}: {model.model_name}")
             agent = Agent(
                 model=model,
                 system_prompt=system_prompt,
                 name="market-research-agent",
             )
-            
             result = await agent.run(prompt, message_history=[])
-            print(f"✓ Successfully got response from: {config.model_name}")
+            log.info(f"Got response from: {model.model_name}")
             return result
-            
         except Exception as e:
             last_error = e
-            print(f"✗ Model {config.model_name} failed: {str(e)}")
-            if i < len(MODEL_CONFIGS) - 1:
-                print(f"Trying next fallback model...")
+            log.error(f"Model {getattr(model,'model_name','unknown')} failed: {e}")
+            if i < len(providers_chain) - 1:
+                log.info("Trying next fallback model...")
             continue
     
     # If all models fail, raise the last error
@@ -234,6 +261,34 @@ async def run_agent_with_fallback(prompt: str, system_prompt: str) -> any:
 # -------------------------
 # MCP Tool
 # -------------------------
+def _require_auth() -> Optional[dict]:
+    if not authentication_complete:
+        return {"error": "Not authenticated", "detail": "Login required before using tools"}
+    return None
+
+def _extract_json(text: str) -> Optional[dict]:
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:i+1]
+                try:
+                    return json.loads(candidate)
+                except Exception:
+                    break
+    return None
+
 @mcp.tool()
 async def market_research(query: str, max_results: int = 5) -> dict:
     """
@@ -246,9 +301,11 @@ async def market_research(query: str, max_results: int = 5) -> dict:
     Returns:
         dict: Structured market research with trends, competitors, and opportunities
     """
+    auth_err = _require_auth()
+    if auth_err:
+        return auth_err
     try:
-        # 1. Perform web search
-        print(f"Searching for: {query}")
+        log.info(f"Searching for: {query}")
         with DDGS(timeout=10) as ddgs:
             raw_results = list(ddgs.text(query, max_results=max_results))
         
@@ -310,8 +367,10 @@ async def market_research(query: str, max_results: int = 5) -> dict:
             
             # If it's a string, try to parse it as JSON
             if isinstance(data, str):
-                import json
-                data = json.loads(data)
+                parsed = _extract_json(data)
+                if parsed is None:
+                    raise ValueError("Model response did not contain valid JSON object")
+                data = parsed
             
             # Validate with Pydantic model
             validated = MarketResearchResult.model_validate(data)
@@ -319,7 +378,7 @@ async def market_research(query: str, max_results: int = 5) -> dict:
             
         except Exception as parse_error:
             # Return raw response if parsing fails
-            print(f"Parsing error: {parse_error}")
+            log.error(f"Parsing error: {parse_error}")
             return {
                 "query": query,
                 "summary": str(result.data if hasattr(result, 'data') else result),
@@ -352,6 +411,9 @@ def check_available_models() -> dict:
     """
     models_status = []
     
+    auth_err = _require_auth()
+    if auth_err:
+        return auth_err
     for i, config in enumerate(MODEL_CONFIGS, start=1):
         status = {
             "priority": i,
@@ -392,6 +454,9 @@ def quick_search(query: str, max_results: int = 3) -> dict:
     Returns:
         dict: Raw search results
     """
+    auth_err = _require_auth()
+    if auth_err:
+        return auth_err
     try:
         with DDGS(timeout=10) as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
@@ -516,7 +581,7 @@ if __name__ == "__main__":
                             <div class="login-container" style="text-align: center;">
                                 <h1 style="color: green;">✓ Authentication Successful!</h1>
                                 <p>MCP Server is now starting...</p>
-                                <p style="color: #666; font-size: 14px;">This window will close automatically.</p>
+                                <p style="color: #666; font-size: 14px;">You can close the window now.</p>
                             </div>
                         `;
                         setTimeout(() => window.close(), 3000);
@@ -546,10 +611,11 @@ if __name__ == "__main__":
                     'timestamp': time.time()
                 }
                 authentication_complete = True
-                
+                token = serializer.dumps({"u": username, "ts": int(time.time())})
                 return JSONResponse({
                     "success": True,
-                    "message": "Authentication successful. Starting MCP server..."
+                    "message": "Authentication successful. Starting MCP server...",
+                    "token": token
                 })
             else:
                 return JSONResponse({
@@ -570,53 +636,56 @@ if __name__ == "__main__":
     ])
     
     print("="*60)
-    print(f"🔐 Starting Authentication Server on port {MCP_PORT}...")
+    if SKIP_STARTUP_AUTH:
+        print("⚠️  Skipping authentication (SKIP_STARTUP_AUTH=true)")
+    else:
+        print(f"🔐 Starting Authentication Server on port {AUTH_PORT}...")
     print("="*60 + "\n")
     
     # Run auth server in background thread
+    auth_server_ref = {"server": None}
     def run_auth_server():
-        config = uvicorn.Config(temp_app, host="0.0.0.0", port=MCP_PORT, log_level="error")
+        config = uvicorn.Config(temp_app, host="0.0.0.0", port=AUTH_PORT, log_level="error")
         server = uvicorn.Server(config)
+        auth_server_ref["server"] = server
         server.run()
     
-    auth_thread = threading.Thread(target=run_auth_server, daemon=True)
-    auth_thread.start()
-    
-    # Wait for authentication
-    time.sleep(2)  # Let auth server start
-    
-    if ENVIRONMENT == "development":
-        auth_url = f"http://localhost:{MCP_PORT}"
-        print(f"🌐 Opening browser to: {auth_url}")
-        print("   (If browser doesn't open, manually visit the URL above)\n")
-        webbrowser.open(auth_url)
+    if not SKIP_STARTUP_AUTH:
+        auth_thread = threading.Thread(target=run_auth_server, daemon=True)
+        auth_thread.start()
+        time.sleep(2)  # Let auth server start
+        if ENVIRONMENT == "development":
+            auth_url = f"http://localhost:{AUTH_PORT}"
+            print(f"🌐 Opening browser to: {auth_url}")
+            print("   (If browser doesn't open, manually visit the URL above)\n")
+            webbrowser.open(auth_url)
+        else:
+            print("⚠️  PRODUCTION MODE")
+            print("   Visit the auth URL to authenticate and start MCP\n")
+        print("⏳ Waiting for authentication...")
+        max_wait = int(os.getenv("AUTH_MAX_WAIT", "300"))
+        for i in range(max_wait):
+            if authentication_complete:
+                break
+            time.sleep(1)
+            if (i + 1) % 10 == 0:
+                print(f"   Still waiting... ({i + 1}s elapsed)")
+        if not authentication_complete:
+            print("\n❌ Authentication timed out!")
+            print("   Proceeding without tool access (tools will return Not authenticated).")
     else:
-        print(f"⚠️  PRODUCTION MODE")
-        print(f"   Visit the server URL to authenticate and start MCP\n")
-    
-    print("⏳ Waiting for authentication...")
-    max_wait = 300  # 5 minutes
-    
-    for i in range(max_wait):
-        if authentication_complete:
-            break
-        time.sleep(1)
-        if (i + 1) % 10 == 0:
-            print(f"   Still waiting... ({i + 1}s elapsed)")
-    
-    if not authentication_complete:
-        print("\n❌ Authentication timed out!")
-        print("   Server will not start.\n")
-        exit(1)
-    
-    print(f"\n✅ Authentication Successful!")
-    print(f"   User: {authenticated_user.get('username')}\n")
-    
-    # Stop auth server and start MCP server
+        authentication_complete = True
+        authenticated_user = {"username": "skipped", "authenticated": True, "timestamp": time.time()}
+    if authentication_complete:
+        print(f"\n✅ Authentication Successful!")
+        print(f"   User: {authenticated_user.get('username')}\n")
+    else:
+        print("⚠️  Starting MCP with auth disabled (tools gated).\n")
     print("="*60)
     print(f"🚀 Starting MCP Server on port {MCP_PORT}...")
     print("="*60 + "\n")
-    
-    # Now start the actual MCP server
-    print("✅ MCP Server Starting! All tools are accessible.\n")
+    if not authentication_complete:
+        print("⚠️  Tools will reject requests until authenticated.\n")
+    else:
+        print("✅ MCP Server Starting! Tools are accessible.\n")
     mcp.run(transport="streamable-http", port=MCP_PORT)
