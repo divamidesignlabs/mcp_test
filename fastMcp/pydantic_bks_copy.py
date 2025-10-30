@@ -4,11 +4,16 @@ import asyncio
 from typing import List, Dict, Any, Optional, Literal
 from urllib.parse import urljoin
 from enum import Enum
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 import httpx
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
+
 from bs4 import BeautifulSoup
 from cachetools import TTLCache
 from dotenv import load_dotenv
@@ -19,6 +24,9 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.providers.google import GoogleProvider
+
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 
 load_dotenv()
@@ -40,8 +48,6 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
             headers={"WWW-Authenticate": "Bearer"},
         )
     return credentials.credentials
-
-
 
 
 
@@ -162,16 +168,80 @@ class BookStackClient:
 # ============================================================================
 # PydanticAI Agent Setup
 # ============================================================================
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-provider = GoogleProvider(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# provider = GoogleProvider(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+baseurl = os.getenv("LITELLM_BASE_URL", "https://litellm.divami.com")
+litellm_key = os.getenv("LITELLM_MASTER_KEY")
+
+# Support custom fallback models via environment variable
+# Format: MODEL_FALLBACK_LIST="model1,model2,model3"
+custom_models = os.getenv("MODEL_FALLBACK_LIST", "")
+
+
+class ModelConfig(BaseModel):
+    """Configuration for AI model providers."""
+    model_name: str
+    base_url: str
+    api_key: Optional[str] = None  # Optional for local proxies
+
+    @validator("base_url")
+    def base_url_must_not_be_empty(cls, v):
+        if not v:
+            raise ValueError("base_url must not be empty")
+        return v
+
+def _create_model(config: ModelConfig) -> OpenAIChatModel:
+    """Create an OpenAIChatModel from configuration."""
+    provider_kwargs = {"base_url": config.base_url}
+    if config.api_key:
+        provider_kwargs["api_key"] = config.api_key
+    provider = OpenAIProvider(**provider_kwargs)
+    return OpenAIChatModel(model_name=config.model_name, provider=provider)
+
+
+if custom_models:
+    # Use custom model list from environment
+    model_names = [m.strip() for m in custom_models.split(",") if m.strip()]
+    MODEL_CONFIGS = [
+        ModelConfig(
+            model_name=model_name,
+            base_url=baseurl,
+            api_key=litellm_key,
+        )
+        for model_name in model_names
+    ]
+    log.info(f"Using custom model fallback list: {model_names}")
+else:
+    # Default fallback chain
+    MODEL_CONFIGS = [
+        ModelConfig(
+            model_name="openai/gpt-4o-mini",
+            base_url=baseurl,
+            api_key=litellm_key,
+        ),
+        ModelConfig(
+            model_name="gemini/gemini-2.5-flash",
+            base_url=baseurl,
+            api_key=litellm_key,
+        ),
+        ModelConfig(
+            model_name="gemini/gemini-2.5-pro",
+            base_url=baseurl,
+            api_key=litellm_key,
+        ),
+    ]
+
 # Initialize the model (using OpenAI, but can use Anthropic/others)
-model = GoogleModel('gemini-1.5-flash', provider=provider)
+# model = GoogleModel('gemini-1.5-flash', provider=provider)
 # GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # model = GoogleModel('gemini-1.5-flash', api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
+MODEL_INSTANCES = [_create_model(cfg) for cfg in MODEL_CONFIGS]
+
 # Create the agent
 bookstack_agent = Agent(
-    model=model,
+    model=MODEL_INSTANCES[0],
     output_type=QueryIntent,
     system_prompt="""You are an intelligent assistant for the BookStack documentation system.
     
@@ -386,7 +456,7 @@ async def search_endpoint(
 def health():
     return {
         "status": "healthy",
-        "ai_enabled": model is not None,
+        "ai_enabled": MODEL_INSTANCES[0] is not None,
         "cache_size": len(fetch_cache)
     }
 @app.get("/mcp")
@@ -410,7 +480,7 @@ mcp.mount_http()
 
 if __name__ == "__main__":
     import uvicorn
-    print("gemini_key configured:", bool(GEMINI_API_KEY))
+    # print("gemini_key configured:", bool(GEMINI_API_KEY))
     print("token_id configured:", bool(TOKEN_ID))
     print("token_secret configured:", bool(TOKEN_SECRET))
     uvicorn.run(app, host="0.0.0.0", port=8010)
