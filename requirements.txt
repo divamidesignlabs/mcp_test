@@ -16,4 +16,6 @@ authlib
 litellm
 itsdangerous
 starlette
+pydantic-ai
+fastapi-mcp
 

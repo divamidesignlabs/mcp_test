@@ -648,7 +648,7 @@ if __name__ == "__main__":
     # Run auth server in background thread
     auth_server_ref = {"server": None}
     def run_auth_server():
-        config = uvicorn.Config(temp_app, host="0.0.0.0", port=MCP_PORT, log_level="error")
+        config = uvicorn.Config(temp_app, host="0.0.0.0", port=AUTH_PORT, log_level="error")
         server = uvicorn.Server(config)
         auth_server_ref["server"] = server
         server.run()

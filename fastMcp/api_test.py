@@ -106,7 +106,7 @@ def _extract_links_from_json(data: Any, base_url: str) -> Set[str]:
 
 @app.get("/fetch", response_model=Dict[str, Any])
 async def fetch(
-    path: str = Query("/api/books", description="Path to fetch (e.g. /shelves or /api/shelves)"),
+    path: str = Query("/api/books", description="Path to fetch (e.g. /shelves or /api/shelves or /api/shelves/{id})"),
     token_id: Optional[str] = Header(None, convert_underscores=False),
     token_secret: Optional[str] = Header(None, convert_underscores=False),
     use_env: bool = Query(True, description="Use env vars for tokens"),

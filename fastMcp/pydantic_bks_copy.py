@@ -30,7 +30,9 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 
 load_dotenv()
+from fastapi import APIRouter
 
+router = APIRouter()
 
 STATIC_TOKEN = os.getenv("STATIC_TOKEN")
 
@@ -59,7 +61,7 @@ TOKEN_SECRET = os.getenv("TOKEN_SECRET")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "15.0"))
 # OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-app = FastAPI(title="Smart BookStack MCP with AI Agent")
+# app = FastAPI(title="Smart BookStack MCP with AI Agent")
 
 # Cache for API responses
 fetch_cache = TTLCache(maxsize=256, ttl=300)  # 5 min TTL
@@ -394,7 +396,7 @@ async def execute_smart_query(
 #     return await execute_smart_query(query, client, context)
 
 
-@app.get("/fetch/{endpoint_type}/{resource_id:int}")
+@router.get("/fetch/{endpoint_type}/{resource_id:int}")
 async def direct_fetch(
     resource_id: int,
     endpoint_type: EndpointType,
@@ -432,7 +434,7 @@ async def direct_fetch(
     return {"data": data}
 
 
-@app.get("/search")
+@router.get("/search")
 async def search_endpoint(
     q: str = Query(..., description="Search query"),
     page: int = Query(1, ge=1),
@@ -452,14 +454,14 @@ async def search_endpoint(
     return await client.search(q, page, count)
 
 
-@app.get("/health")
+@router.get("/health")
 def health():
     return {
         "status": "healthy",
         "ai_enabled": MODEL_INSTANCES[0] is not None,
         "cache_size": len(fetch_cache)
     }
-@app.get("/mcp")
+@router.get("/mcp")
 async def mcp_root(token: str = Depends(verify_token)):
     """Protected MCP root endpoint"""
     return {
@@ -472,15 +474,15 @@ async def mcp_root(token: str = Depends(verify_token)):
 # MCP Integration
 # ============================================================================
 
-mcp = FastApiMCP(app, name="Smart BookStack MCP",  auth_config=AuthConfig(
-        dependencies=[Depends(verify_token)]
-    ))
-mcp.mount_http()
+# mcp = FastApiMCP(app, name="Smart BookStack MCP",  auth_config=AuthConfig(
+#         dependencies=[Depends(verify_token)]
+#     ))
+# mcp.mount_http()
 
 
-if __name__ == "__main__":
-    import uvicorn
-    # print("gemini_key configured:", bool(GEMINI_API_KEY))
-    print("token_id configured:", bool(TOKEN_ID))
-    print("token_secret configured:", bool(TOKEN_SECRET))
-    uvicorn.run(app, host="0.0.0.0", port=8010)
+# if __name__ == "__main__":
+#     import uvicorn
+#     # print("gemini_key configured:", bool(GEMINI_API_KEY))
+#     print("token_id configured:", bool(TOKEN_ID))
+#     print("token_secret configured:", bool(TOKEN_SECRET))
+#     uvicorn.run(app, host="0.0.0.0", port=8010)

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi_mcp import FastApiMCP, AuthConfig
 
 load_dotenv()
-STATIC_TOKEN = os.getenv("STATIC_TOKEN", "mysecrettoken")
+STATIC_TOKEN = os.getenv("STATIC_TOKEN")
 
 app = FastAPI()
 
@@ -53,4 +53,3 @@ if __name__ == "__main__":
     print(f"🔑 Use Bearer token: {STATIC_TOKEN}")
     print(f"📝 Example: curl -H 'Authorization: Bearer {STATIC_TOKEN}' http://localhost:{port}/mcp")
     
-    uvicorn.run(app, host="0.0.0.0", port=port)

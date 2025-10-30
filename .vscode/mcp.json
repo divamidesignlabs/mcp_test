@@ -1,11 +1,82 @@
 {
-    "servers": {
-        "md-converter": {
-            "url": "http://0.0.0.0:8000/mcp/"
-        },
-    "market-research": {
-      "url": "https://api.mcptest.divami.com/mcp",
+  "servers": {
+    "md-converter": {
+      "url": "http://0.0.0.0:8000/mcp/"
+    },
+    "MarketResearchAgent": {
+      "url": "http://127.0.0.1:8001/mcp",
+      "type": "sse"
+    },
+    "remote-example": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8000/mcp",
+        "--header",
+        "Authorization:${MCP_ACCESS_TOKEN}"
+      ],
+      "env": {
+        "MCP_ACCESS_TOKEN": "Bearer test_token_123456789"
+      }
+    },
+    "Hyperlink Content Fetcher": {
+      "url": "http://127.0.0.1:8000/mcp",
       "type": "http"
+    },
+    "TEST": {
+      "url": "http://127.0.0.1:8082/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer bks-divami-$$secretToken$$"
+      }
+    },
+    // "bookstack-smart": {
+    //   "url": "https://api.mcptest.divami.com/mcp",
+    //   "type": "http",
+    // //   "env": {
+    // //     "TOKEN_ID": "5NNwZeHIoxsSxtPRt144s4aELt6jfHMv",
+    // //     "TOKEN_SECRET": "s3QibFGHcTTQ3R2JiVO7kjTc8aWr1JLP",
+    // //     "GEMINI_API_KEY": "AIzaSyDsW--RlXJwZ-8XAd4Ny2EPtoeUl04e44Y"
+    // //   },
+    //   "headers": {
+    //     "Authorization": "Bearer bks-divami-$$secretToken$$"
+    //   }
+    // },
+    //  "bookstack-smart": {
+    //   "url": "http://0.0.0.0:8010/mcp",
+    //   "type": "http",
+    // //   "env": {
+    // //     "TOKEN_ID": "5NNwZeHIoxsSxtPRt144s4aELt6jfHMv",
+    // //     "TOKEN_SECRET": "s3QibFGHcTTQ3R2JiVO7kjTc8aWr1JLP",
+    // //     "GEMINI_API_KEY": "AIzaSyDsW--RlXJwZ-8XAd4Ny2EPtoeUl04e44Y"
+    // //   },
+    //   "headers": {
+    //     "Authorization": "Bearer bks-divami-$$secretToken$$"
+    //   }
+    // },
+    "Market Research MCP": {
+      "url": "http://0.0.0.0:8011/mcp",
+      "type": "http",
+       "headers": {
+        "Authorization": "Bearer bks-divami-$$secretToken$$"
+      }
+    },
+    // "Protected MCP": {
+    //     "url": "http://0.0.0.0:8003/mcp",
+    //     "type": "http"
+    // },
+
+
+    "unified-mcp-server": {
+       "url": "http://0.0.0.0:8010/mcp",
+      "type": "http",
+       "headers": {
+        "Authorization": "Bearer bks-divami-$$secretToken$$"
+      }
+    },
+    
+
+
+
   }
-    }
 }

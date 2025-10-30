@@ -4,6 +4,7 @@ Refactored to remove undefined model abstractions and rely directly on LiteLLM's
 `completion` interface pointed at a configurable proxy/base URL.
 """
 from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
@@ -24,6 +25,10 @@ from fastapi_mcp import FastApiMCP, AuthConfig
 # Environment / Configuration
 # -------------------------
 load_dotenv()
+from fastapi import APIRouter
+
+router = APIRouter()
+
 
 LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  
 LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "https://litellm.divami.com")
@@ -87,7 +92,7 @@ class MarketResearchResult(BaseModel):
 # FastMCP Setup
 # -------------------------
 # mcp = FastMCP("Market Research MCP")
-app=FastAPI()
+# app=FastAPI()
 
 # -------------------------
 # Helper Functions
@@ -120,7 +125,7 @@ def build_context_string(hits: List[dict]) -> str:
 # -------------------------
 # MCP Tool
 # -------------------------
-@app.get("/market_research")
+@router.get("/market_research")
 async def market_research(query: str, max_results: int = 5) -> dict:
     """
     Perform comprehensive market research using DuckDuckGo search and AI analysis.
@@ -248,7 +253,7 @@ async def market_research(query: str, max_results: int = 5) -> dict:
 # -------------------------
 # Optional: Additional Tools
 # -------------------------
-@app.get("/quick_search")
+@router.get("/quick_search")
 def quick_search(query: str, max_results: int = 3) -> dict:
     """
     Quick DuckDuckGo search without AI analysis.
@@ -278,10 +283,10 @@ def quick_search(query: str, max_results: int = 3) -> dict:
 
 STATIC_TOKEN = os.getenv("STATIC_TOKEN")
 
-app = FastAPI()
+# app = FastAPI()
 
-# Security scheme for Bearer token
-security = HTTPBearer()
+# # Security scheme for Bearer token
+# security = HTTPBearer()
 
 async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Verify Bearer token from Authorization header"""
@@ -294,34 +299,34 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
     return credentials.credentials
 
 
-@app.get("/mcp")
-async def mcp_root(token: str = Depends(verify_token)):
-    """Protected MCP root endpoint"""
-    return {
-        "message": "✅ MCP Ready. Auth successful.",
-        "status": "authenticated"
-    }
+# @router.get("/mcp")
+# async def mcp_root(token: str = Depends(verify_token)):
+#     """Protected MCP root endpoint"""
+#     return {
+#         "message": "✅ MCP Ready. Auth successful.",
+#         "status": "authenticated"
+#     }
 
 
-# Mount MCP with token auth
-mcp = FastApiMCP(
-    app,
-    name="Market Research MCP",
-    auth_config=AuthConfig(
-        dependencies=[Depends(verify_token)]
-    )
-)
+# # Mount MCP with token auth
+# mcp = FastApiMCP(
+#     app,
+#     name="Market Research MCP",
+#     auth_config=AuthConfig(
+#         dependencies=[Depends(verify_token)]
+#     )
+# )
 
-mcp.mount_http()
+# mcp.mount_http()
 
-# -------------------------
-# Entry Point
-# -------------------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8011)
+# # -------------------------
+# # Entry Point
+# # -------------------------
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8011)
     
-    # Run FastMCP server
-    print("\n🚀 Starting Market Research MCP Server on port 8011...")
-    print("Available tools: market_research, quick_search\n")
-    mcp.run(transport="streamable-http", port=8011)
+#     # Run FastMCP server
+#     print("\n🚀 Starting Market Research MCP Server on port 8011...")
+#     print("Available tools: market_research, quick_search\n")
+#     mcp.run(transport="streamable-http", port=8011)

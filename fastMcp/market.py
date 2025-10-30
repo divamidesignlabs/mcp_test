@@ -1,6 +1,7 @@
 """
 Market Research MCP Server using FastMCP, DDGS, and Pydantic AI
 """
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from fastmcp import FastMCP
@@ -11,6 +12,9 @@ from pydantic_ai.models.openai import OpenAIModel
 import os
 import textwrap
 from dotenv import load_dotenv
+from fastapi_mcp import FastApiMCP, AuthConfig
+from fastapi import FastAPI, Depends
+
 
 # Load environment variablesx
 load_dotenv()
@@ -42,10 +46,30 @@ class MarketResearchResult(BaseModel):
     citations: List[SearchHit] = Field(default_factory=list, description="Source citations")
 
 
+
+##auth
+token_auth_scheme = HTTPBearer()
+
+##fastapi app
+app = FastAPI()
+
+@app.get("/private")
+async def private(token=Depends(token_auth_scheme)):
+    return token.credentials
 # -------------------------
 # FastMCP Setup
 # -------------------------
-mcp = FastMCP("MarketResearchAgent")
+# mcp = FastMCP("MarketResearchAgent")
+mcp = FastApiMCP(
+    app,
+    name="MarketResearchAgent",
+    # auth_config=AuthConfig(
+    #     dependencies=[Depends(token_auth_scheme)],
+    # ),
+)
+
+mcp.mount_http()
+# app.mount('/mcp', mcp.sse_app())
 
 
 # -------------------------
@@ -89,7 +113,8 @@ def build_context_string(hits: List[dict]) -> str:
 # -------------------------
 # MCP Tool
 # -------------------------
-@mcp.tool()
+# @mcp.tool()
+@app.get("/market_research")
 async def market_research(query: str, max_results: int = 5) -> dict:
     """
     Perform comprehensive market research using DuckDuckGo search and AI analysis.
@@ -205,7 +230,8 @@ async def market_research(query: str, max_results: int = 5) -> dict:
 # -------------------------
 # Optional: Additional Tools
 # -------------------------
-@mcp.tool()
+# @mcp.tool()
+@app.get("/quick_search")
 def quick_search(query: str, max_results: int = 3) -> dict:
     """
     Quick DuckDuckGo search without AI analysis.
@@ -245,4 +271,7 @@ if __name__ == "__main__":
     # Run FastMCP server
     print("\n🚀 Starting Market Research MCP Server on port 8001...")
     print("Available tools: market_research, quick_search\n")
-    mcp.run(transport="streamable-http", port=8001)
+    # mcp.run(transport="streamable-http", port=8001)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8001)
