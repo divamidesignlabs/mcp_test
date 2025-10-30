@@ -355,43 +355,43 @@ async def execute_smart_query(
 # FastAPI Endpoints
 # ============================================================================
 
-@app.get("/smart-fetch", response_model=SmartFetchResult)
-async def smart_fetch(
-    query: str = Query(..., description="Natural language query (e.g., 'show me shelf 5', 'find pages about API')"),
-    # query: Optional[str] = Query(None),
-    token_id: Optional[str] = Header(None),
-    token_secret: Optional[str] = Header(None),
-    use_env: bool = Query(True)
-):
-    """
-    Smart endpoint that uses AI to understand your query and fetch the right data.
+# @app.get("/smart-fetch", response_model=SmartFetchResult)
+# async def smart_fetch(
+#     query: str = Query(..., description="Natural language query (e.g., 'show me shelf 5', 'find pages about API')"),
+#     # query: Optional[str] = Query(None),
+#     token_id: Optional[str] = Header(None),
+#     token_secret: Optional[str] = Header(None),
+#     use_env: bool = Query(True)
+# ):
+#     """
+#     Smart endpoint that uses AI to understand your query and fetch the right data.
     
-    Examples:
-    - "Show me all shelves"
-    - "What's in shelf 5?"
-    - "Find pages about authentication"
-    - "Get book 23"
-    - "Search for API documentation"
-    """
-    if not model:
-        raise HTTPException(
-            status_code=503, 
-            detail="AI model not configured. Set OPENAI_API_KEY environment variable."
-        )
+#     Examples:
+#     - "Show me all shelves"
+#     - "What's in shelf 5?"
+#     - "Find pages about authentication"
+#     - "Get book 23"
+#     - "Search for API documentation"
+#     """
+#     # if not model:
+#     #     raise HTTPException(
+#     #         status_code=503, 
+#     #         detail="AI model not configured. Set OPENAI_API_KEY environment variable."
+#     #     )
     
-    tid = token_id or (TOKEN_ID if use_env else None)
-    tse = token_secret or (TOKEN_SECRET if use_env else None)
+#     tid = token_id or (TOKEN_ID if use_env else None)
+#     tse = token_secret or (TOKEN_SECRET if use_env else None)
     
-    if not tid or not tse:
-        raise HTTPException(
-            status_code=400,
-            detail="Authentication required. Provide token_id and token_secret headers or set environment variables."
-        )
+#     if not tid or not tse:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Authentication required. Provide token_id and token_secret headers or set environment variables."
+#         )
     
-    client = BookStackClient(tid, tse)
-    context = BookStackContext(token_id=tid, token_secret=tse)
+#     client = BookStackClient(tid, tse)
+#     context = BookStackContext(token_id=tid, token_secret=tse)
     
-    return await execute_smart_query(query, client, context)
+#     return await execute_smart_query(query, client, context)
 
 
 @app.get("/fetch/{endpoint_type}/{resource_id:int}")
